@@ -57,19 +57,18 @@ function handleServerInput(text) {
 // Set the native value of the target element
 function setNativeValue(element, value) {
     console.log("[content_script.js] Setting native value of element...");
-    // Always use textContent to reliably set text, as per the working example from your other project.
-    element.textContent = value;
+    element.textContent = value; // Always use textContent to reliably set text
     console.log("[content_script.js] Value set successfully to:", value);
 }
 
-// Find the dynamic input field by using fallback selectors similar to your confirmed working code
+// Find the dynamic input field by using fallback selectors
 function findDynamicInputField() {
     console.log("[content_script.js] Attempting to find dynamic input field...");
 
-    // Try the selectors that worked in your previous project
+// fallback if no placeholder is present
     const selectors = [
         'p[data-placeholder*="Message"]',
-        'div[contenteditable="true"]' // fallback if no placeholder is present
+        'div[contenteditable="true"]' 
     ];
 
     for (const selector of selectors) {
