@@ -1,29 +1,21 @@
+console.log("[background.js] Service worker loaded.");
+
 let ws = null;
 let wsUrl = null;
 let connected = false;
-let connectedTabId = null; // Instead of activeTabId
+let activeTabId = null;
 let pingInterval = null;
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   console.log("[background.js] onMessage received:", msg);
-  
+
   if (msg.type === 'TOGGLE_CONNECTION') {
     console.log("[background.js] Toggling connection...");
     chrome.storage.sync.get(['wsUrl'], (data) => {
       wsUrl = data.wsUrl;
       console.log("[background.js] Retrieved wsUrl from storage:", wsUrl);
-      
-      // Get the current active tab only when starting the connection
       if (!connected) {
-        chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-          if (tabs.length > 0) {
-            connectedTabId = tabs[0].id; 
-            console.log("[background.js] Storing connectedTabId:", connectedTabId);
-            connectWebSocket();
-          } else {
-            console.warn("[background.js] No active tab found. Cannot set connectedTabId.");
-          }
-        });
+        connectWebSocket();
       } else {
         disconnectWebSocket();
       }
@@ -33,15 +25,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'RESPONSE_FROM_CHATGPT') {
+    // This message comes from content_script.js after it gets a new assistant response
     console.log("[background.js] RESPONSE_FROM_CHATGPT received:", msg.response);
     if (connected && ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'response', data: msg.response }));
+      console.log("[background.js] Sent response back to WebSocket server:", msg.response);
+    } else {
+      console.warn("[background.js] WebSocket not connected or not open. Cannot send response back.");
     }
   }
 });
 
-// Remove chrome.tabs.onActivated listener entirely
-// chrome.tabs.onActivated.removeListener(...) // If previously added
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  console.log("[background.js] Active tab changed:", activeInfo);
+  activeTabId = activeInfo.tabId;
+});
 
 function connectWebSocket() {
   if (ws) {
@@ -61,13 +59,18 @@ function connectWebSocket() {
   ws.onmessage = (event) => {
     console.log("[background.js] WebSocket onmessage:", event.data);
     let data = null;
-    try { data = JSON.parse(event.data); } catch(e) { console.error("[background.js] JSON parse error:", e); }
+    try { 
+      data = JSON.parse(event.data); 
+    } catch(e) { 
+      console.error("[background.js] JSON parse error:", e); 
+    }
     if (!data) return;
 
+    // If server sends an input message, forward it to the content script
     if (data.type === 'input') {
       console.log("[background.js] Received input from server:", data.text);
-      if (connectedTabId !== null) {
-        chrome.tabs.sendMessage(connectedTabId, { type: 'INPUT_FROM_SERVER', text: data.text }, (response) => {
+      if (activeTabId !== null) {
+        chrome.tabs.sendMessage(activeTabId, { type: 'INPUT_FROM_SERVER', text: data.text }, (response) => {
           if (chrome.runtime.lastError) {
             console.error("[background.js] Error sending message to content script:", chrome.runtime.lastError);
           } else {
@@ -75,7 +78,7 @@ function connectWebSocket() {
           }
         });
       } else {
-        console.warn("[background.js] connectedTabId not set. Cannot send input to content script.");
+        console.warn("[background.js] No activeTabId. Cannot send input to content script.");
       }
     }
   };
@@ -107,7 +110,6 @@ function cleanupConnection() {
     ws = null;
   }
   connected = false;
-  connectedTabId = null; // Reset the connected tab id
   updateStatus(false);
 }
 
